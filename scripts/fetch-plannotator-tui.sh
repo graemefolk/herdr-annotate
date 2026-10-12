@@ -7,7 +7,7 @@
 #   bin/plannotator-tui.version    what is installed; matching the pin means nothing to do
 #
 # Modes, in order:
-#   1. already installed at the pinned version         -> exit 0
+#   1. installed at the pinned version and runs here   -> exit 0
 #   2. PLANNOTATOR_TUI_BIN=/path/to/binary is set      -> copy it (local testing, no download)
 #   3. otherwise download the release asset for this platform and verify its sha256
 #
@@ -23,7 +23,10 @@ destination="bin/plannotator-tui.exe"
 stamp="bin/plannotator-tui.version"
 installed="$(cat bin/plannotator-tui.version 2>/dev/null || true)"
 
-if [ -x "$destination" ] && [ "$installed" = "$version" ] && [ -z "${PLANNOTATOR_TUI_BIN:-}" ]; then
+# The stamp alone is not enough: a plugin directory synced from another machine carries that
+# machine's binary and stamp. Run it; one that cannot execute here falls through to the download.
+if [ -x "$destination" ] && [ "$installed" = "$version" ] && [ -z "${PLANNOTATOR_TUI_BIN:-}" ] \
+  && "$destination" --version </dev/null >/dev/null 2>&1; then
   echo "plannotator-tui $version already installed"
   exit 0
 fi

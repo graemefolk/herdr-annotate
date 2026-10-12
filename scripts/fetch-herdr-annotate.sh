@@ -2,7 +2,7 @@
 # Put the pinned native Lite runtime into bin/. Herdr runs this with cwd = plugin root.
 #
 # Modes, in order:
-#   1. matching binary already installed                 -> exit 0
+#   1. matching binary already installed and runs here   -> exit 0
 #   2. HERDR_ANNOTATE_BIN=/path/to/local/build is set    -> copy it
 #   3. download the release asset and verify SHA256SUMS  -> install it
 set -euo pipefail
@@ -13,7 +13,10 @@ version="$(tr -d '[:space:]' < herdr-annotate.version)"
 mkdir -p bin
 installed="$(cat bin/herdr-annotate.version 2>/dev/null || true)"
 
-if [ -x bin/herdr-annotate.exe ] && [ "$installed" = "$version" ] && [ -z "${HERDR_ANNOTATE_BIN:-}" ]; then
+# The stamp alone is not enough: a plugin directory synced from another machine carries that
+# machine's binary and stamp. Run it; one that cannot execute here falls through to the download.
+if [ -x bin/herdr-annotate.exe ] && [ "$installed" = "$version" ] && [ -z "${HERDR_ANNOTATE_BIN:-}" ] \
+  && bin/herdr-annotate.exe --version </dev/null >/dev/null 2>&1; then
   echo "herdr-annotate $version already installed"
   exit 0
 fi
