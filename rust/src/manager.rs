@@ -415,8 +415,7 @@ impl ManagerApp {
     fn footer_text(&self) -> String {
         match &self.confirmation {
             Confirmation::ClearActive => {
-                return "Press Shift+D again to clear all active annotations · Esc cancel"
-                    .to_owned();
+                return "Press D again to clear all active annotations · Esc cancel".to_owned();
             }
             Confirmation::DeleteArchive { .. } => {
                 return "Press d again to permanently delete this archive · Esc cancel".to_owned();
@@ -564,9 +563,27 @@ impl ManagerApp {
     }
 
     fn edit_selected_annotation(&mut self) {
-        let Some(annotation) = self.annotations.get(self.active_selected).cloned() else {
+        let Some(id) = self
+            .annotations
+            .get(self.active_selected)
+            .map(|item| item.id.clone())
+        else {
             return;
         };
+        if !self.reload_active() {
+            return;
+        }
+        let Some((index, annotation)) = self
+            .annotations
+            .iter()
+            .enumerate()
+            .find(|(_, item)| item.id == id)
+        else {
+            "Annotation no longer exists.".clone_into(&mut self.status);
+            return;
+        };
+        let annotation = annotation.clone();
+        self.active_selected = index;
         self.editing = Some(EditorApp::edit(annotation));
     }
 
@@ -1076,10 +1093,72 @@ mod tests {
                 .any(|row| row.contains("Annotation no longer exists."))
         );
         assert!(frame.iter().any(|row| row.contains("comment one!")));
-        assert!(load_annotations(&dir).expect("still removed").is_empty());
+        assert_eq!(
+            load_annotations(&dir).expect("still removed"),
+            Vec::<Annotation>::new()
+        );
         app.handle_key(KeyEvent::from(KeyCode::Esc));
         app.handle_key(KeyEvent::from(KeyCode::Char('r')));
         assert!(rows(&app).iter().any(|row| row.contains("Annotations (0)")));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn edit_starts_from_the_saved_comment_not_the_cached_one() {
+        let dir = directory();
+        let original = annotation("one");
+        append_annotation(&dir, &original).expect("annotation");
+        let mut app = ManagerApp::load(dir.clone());
+        assert!(
+            crate::store::update_annotation_comment(
+                &dir,
+                &original.id,
+                &original.comment,
+                "comment from another pane",
+            )
+            .expect("concurrent edit")
+        );
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('e')));
+        app.handle_key(KeyEvent::from(KeyCode::Char('!')));
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+
+        let saved = load_annotations(&dir).expect("saved");
+        assert_eq!(saved.len(), 1);
+        assert_eq!(
+            saved.first().map(|item| item.comment.as_str()),
+            Some("comment from another pane!")
+        );
+        assert!(
+            rows(&app)
+                .iter()
+                .any(|row| row.contains("Annotation updated."))
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn edit_of_an_annotation_removed_elsewhere_reports_it_instead_of_opening() {
+        let dir = directory();
+        let original = annotation("one");
+        append_annotation(&dir, &original).expect("annotation");
+        let mut app = ManagerApp::load(dir.clone());
+        remove_annotations_by_id(&dir, &[original.id]).expect("concurrent removal");
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('e')));
+
+        assert!(app.editing.is_none());
+        let frame = rows(&app);
+        assert!(
+            frame
+                .iter()
+                .any(|row| row.contains("Annotation no longer exists."))
+        );
+        assert!(frame.iter().any(|row| row.contains("Annotations (0)")));
+        assert_eq!(
+            load_annotations(&dir).expect("still removed"),
+            Vec::<Annotation>::new()
+        );
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -1092,7 +1171,10 @@ mod tests {
         app.handle_key(KeyEvent::from(KeyCode::Tab));
         app.handle_key(KeyEvent::from(KeyCode::Char('e')));
         assert!(rows(&app).iter().any(|row| row.contains("Archives (0)")));
-        assert!(load_annotations(&dir).expect("empty store").is_empty());
+        assert_eq!(
+            load_annotations(&dir).expect("empty store"),
+            Vec::<Annotation>::new()
+        );
         let _ = fs::remove_dir_all(dir);
     }
 
